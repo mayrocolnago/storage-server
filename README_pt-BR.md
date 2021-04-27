@@ -4,7 +4,7 @@ Este server storage para uploads requer um ambiente PHP 7+ pré configurado com 
 
 Para instalar um servidor semelhante pré-configurado com docker, veja o link abaixo.
 
-https://gitlab.com/mayrocolnago/php-server
+https://github.com/mayrocolnago/php-server
 
 
 # Como usar
