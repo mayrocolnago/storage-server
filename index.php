@@ -1,0 +1,1 @@
+<pre><?php echo htmlentities(@file_get_contents(__DIR__ .'/README.md')); ?></pre>
