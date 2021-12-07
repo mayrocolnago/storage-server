@@ -1,4 +1,6 @@
-<?php @session_start();
+<?php
+@session_start();
+@ob_start();
 
 $uploadsecuritylevel = 4;
 
@@ -11,10 +13,9 @@ header('Content-Type: application/json');
 @include(__DIR__ .'/tokens.php');
 if(!is_array($tokens ?? '')) $tokens = [];
 
+$tokens[] = ($gtoken = hash('sha256',md5(($_SERVER['SERVER_NAME'] ?? 'localhost').($_SERVER['REMOTE_ADDR'] ?? '0.0.0.0').substr(($_SERVER['HTTP_USER_AGENT'] ?? 'none'),0,30) )));
 
-if(($_SERVER['REDIRECT_URL'] ?? '') == '/upload.js') { 
-
-  $_SESSION['upstoretoken'] = md5(($_SERVER['SERVER_NAME'] ?? 'localhost').md5(uniqid()));
+if(($_SERVER['REDIRECT_URL'] ?? '') == '/upload.js') {
 ?>
 /*###############################################################
 ##           ## AUTO-UPLOAD SCRIPT WITH QUEUE ##               ##
@@ -30,25 +31,26 @@ if(($_SERVER['REDIRECT_URL'] ?? '') == '/upload.js') {
     var onstart = function(data){ //imediatly exec when a file is being uploaded };
     var ondone = function(data){ //execute as soon as the file finishes upload };
   
-    bindupload('#file',{ 'f':'name_sufix', 'p':'path/' }, onstart, ondone);
+    bindupload('#file',{ 'f':'name_sufix', 'p':'path/' [, 'token':'for-permanent-tokens'] }, onstart, ondone);
 
 
 #################################################################
 */
 <?php exit(str_replace(["\n","\r","  "], "", 
            str_replace('[SERVER_NAME]', ($_SERVER['SERVER_NAME'] ?? 'localhost'), 
-           str_replace('[TOKEN]', ($_SERVER['token'] ?? hash('sha256',($_SESSION['upstoretoken'] ?? ''))), 
-           @file_get_contents(__DIR__ .'/upload.js') ))) );
+           str_replace('[TOKEN]', ($gtoken), 
+           @file_get_contents(__DIR__ .'/upload.js') ))) ); }
 
-} else
-  $tokens[] = hash('sha256',($_SESSION['upstoretoken'] ?? 'notfound'));
+function exitcod($h,$s='') { 
+  $r = array('result'=>$h); 
+  if($s != '') $r['err'] = $s; 
+  $r['buffer'] = str_replace(["'",'"'],'::',@ob_get_contents());
+  @ob_end_clean();
+  exit(json_encode($r)); }
 
+if(empty($_REQUEST['token'] ?? '')) exitcod('','no token set');;
 
-if(empty($_REQUEST['token'] ?? '')) exit;
-
-if(!in_array($_REQUEST['token'],$tokens)) exitcod('','token-invalid');
-
-function exitcod($h,$s='') { $r = array('result'=>$h); if($s != '') $r['err'] = $s; exit(json_encode($r)); }
+if(!in_array($_REQUEST['token'],$tokens)) exitcod('','token invalid');
 
 
 $workingpath = __DIR__ . '/';
@@ -63,7 +65,7 @@ if((isset($_FILES['file'])) && (!empty(@$_FILES['file']))) if(isset($_FILES['fil
   foreach($skipcheckfiletype as $skp) if(strpos($_FILES['file']['name'],'.'.$skp) !== false)
     $gocheckupload = false;
 
-function upstoreinnercheckupload($seclevel=3,&$filecont,$nome='',$mime_type='') {
+function upstoreinnercheckupload($seclevel=3,$filecont,$nome='',$mime_type='') {
    $keyban = array("echo","php","aspx","shell","sock","open","read","write","base64","eval","exec","dump","sql","code");
    $pg=""; $qp = 0;
    foreach($keyban as $kb) if(stripos($filecont,$kb) !== false){ $pg .= $kb.';'; $qp++; }
@@ -74,7 +76,7 @@ function upstoreinnercheckupload($seclevel=3,&$filecont,$nome='',$mime_type='') 
      $nomean = 'analyse/upload'.date("YzGHis").'.txt';
      $fp = @fopen($nomean,"w");
      @fwrite($fp, $msggm.base64_encode($filecont));
-     @fclose($fp); $filecont = '';
+     @fclose($fp);
      return false;
    } else 
    return true;
@@ -83,7 +85,7 @@ function upstoreinnercheckupload($seclevel=3,&$filecont,$nome='',$mime_type='') 
 if($gocheckupload ?? true) 
   foreach($_FILES as $nome=>$fgnome)
     if(!empty($fgnome['tmp_name'] ?? ''))
-      if(!(upstoreinnercheckupload($uploadsecuritylevel, @file_get_contents($fgnome['tmp_name']), ($fgnome['name'] ?? 'null'), ($fgnome['type'] ?? 'text/plan') )))
+      if(!(upstoreinnercheckupload($uploadsecuritylevel, ($fct=strval(@file_get_contents($fgnome['tmp_name']))), ($fgnome['name'] ?? 'null'), ($fgnome['type'] ?? 'text/plan') )))
           @file_put_contents($fgnome['tmp_name'], '');
 
 $source = (isset($_REQUEST['f'])) ? preg_replace('/[^0-9a-zA-Z\-\_]/','',$_REQUEST['f']) : 'non'; $mime_type = '';
@@ -113,8 +115,8 @@ $taok = false;
 if((isset($_REQUEST['download'])) && (isset($_REQUEST['file']))) {
   $mime_type = 'stream/unknown';
   if(file_exists($novonome = $path . $source . '_' . ((isset($_REQUEST['n'])) ? preg_replace('/[^0-9a-zA-Z\-\_]/','',$_REQUEST['n']) : uniqid(time())) . '.' . ((isset($_REQUEST['e'])) ? preg_replace('/[^0-9a-z]/','',$_REQUEST['e']) : '.txt'))) @unlink($novonome);
-  if(!($fp_remote = @fopen($_REQUEST['file'], 'rb'))) exitcod('');
-  if(!($fp_local = @fopen($novonome, 'wb'))) exitcod('');
+  if(!($fp_remote = @fopen($_REQUEST['file'], 'rb'))) exitcod('','error reading remote file');
+  if(!($fp_local = @fopen($novonome, 'wb'))) exitcod('','error writing local file');
   while($buffer = @fread($fp_remote, 8192)) @fwrite($fp_local, $buffer);
   @fclose($fp_remote);
   @fclose($fp_local);
@@ -123,7 +125,7 @@ if((isset($_REQUEST['download'])) && (isset($_REQUEST['file']))) {
   if((isset($_REQUEST['fromurl'])) && (isset($_REQUEST['file']))) {
     $mime_type = 'stream/unknown';
     if(file_exists($novonome = $path . $source . '_' . ((isset($_REQUEST['n'])) ? preg_replace('/[^0-9a-zA-Z\-\_]/','',$_REQUEST['n']) : uniqid(time())) . '.' . ((isset($_REQUEST['e'])) ? preg_replace('/[^0-9a-z]/','',$_REQUEST['e']) : '.txt'))) @unlink($novonome);
-    if(@copy($_REQUEST['file'],$novonome)) exitcod($novonome); else exitcod('');
+    if(@copy($_REQUEST['file'],$novonome)) exitcod($novonome); else exitcod('','error. file not found');
   } else
     if((!isset($_REQUEST['base64'])) && (!isset($_REQUEST['getfile']))) {
         //if(!(isset($_FILES['file']['name']) && $_FILES['file']['error'] == 0)) exit;
@@ -210,7 +212,7 @@ switch ($mime_type) {
     default: $taok = false;
 }
 
-if(!$taok) exitcod('','mime:'.$mime_type);
+if(!$taok) exitcod('','invalid mime: '.$mime_type);
   
 $novonome = $path . $source . '_' . ((isset($_REQUEST['n'])) ? preg_replace('/[^0-9a-zA-Z\-\_]/','',$_REQUEST['n']) : uniqid(time())) . '.' . ((isset($_REQUEST['e'])) ? preg_replace('/[^0-9a-z]/','',$_REQUEST['e']) : $extensao);
 
